@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 export type { Socket } from 'socket.io-client';
 
+const SOCKET_SERVER = process.env.NODE_ENV === 'production' ? 'https://api.shawnstewart.me' : 'localhost:8001';
+
 interface UseSocketProps {
     onConnect?: (s: Socket) => void;
     onDisconnect?: (s: Socket) => void;
@@ -13,7 +15,7 @@ export const useSocket = (props?: UseSocketProps): [Socket | undefined, () => vo
 
     const connect = useCallback(() => {
         if (!socketState) {
-            const socket = io(process.env.REACT_APP_SOCKET_SERVER as string);
+            const socket = io(SOCKET_SERVER);
 
             socket.on('connect', () => {
                 console.log('%cConnected with socket id:', 'color: green', socket.id);
