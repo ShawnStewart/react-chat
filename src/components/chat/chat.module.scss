@@ -41,20 +41,29 @@
         align-items: flex-end;
 
         .from {
-            cursor: auto;
+            cursor: initial;
         }
 
         .text {
             background-color: #147efb;
+
+            &.whisper {
+                background-color: #53d769;
+            }
         }
     }
 
     .from {
-        font-size: 10px;
+        font-size: 12px;
         padding: 0 4px;
         background-color: initial;
         border: none;
         cursor: pointer;
+
+        &:disabled {
+            color: initial;
+            cursor: initial;
+        }
     }
 
     .text {
@@ -65,10 +74,16 @@
         margin-bottom: 4px;
 
         &.whisper {
-            background-color: wheat;
+            background-color: #fecb2e;
             color: black;
         }
     }
+}
+
+.messageError {
+    color: red;
+    font-size: 12px;
+    margin-bottom: 4px;
 }
 
 .newMessageForm {

@@ -7,7 +7,8 @@ import styles from './chat.module.scss';
 import { useCallback } from 'react';
 import { useRef } from 'react';
 
-const WHISPER_REGEX = /^\/whisper\s+([\w\d]{5})\s+(.+)/;
+const WHISPER_REGEX = /^\/(w|whisper)\s+(\S{5})\s+(.+)/;
+const COMMAND_REGEX = /^\/([a-zA-Z]+)/;
 
 interface Message {
     date: Date;
@@ -21,14 +22,10 @@ const Chat: FC = () => {
     const [message, setMessage] = useState('');
     const [chatLog, setChatLog] = useState<Message[]>([]);
     const [chattingCount, setChattingCount] = useState(0);
+    const [messageError, setMessageError] = useState('');
 
     const chatLogRef = useRef<HTMLDivElement>(null);
     const messageInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        const query = document.querySelectorAll(`.${styles.text}`);
-        query[query.length - 1]?.scrollIntoView({ behavior: 'smooth' });
-    }, [chatLog]);
 
     const onSocketConnect = useCallback((socket: Socket) => {
         socket.emit('chat:join', () => setIsLoading(false));
@@ -39,6 +36,7 @@ const Chat: FC = () => {
             setChattingCount(count - 1);
         });
     }, []);
+
     const onSocketDisconnect = useCallback(() => {
         setChatLog([]);
         setChattingCount(0);
@@ -46,18 +44,45 @@ const Chat: FC = () => {
 
     const [socket, connect] = useSocket({ onConnect: onSocketConnect, onDisconnect: onSocketDisconnect });
 
+    const scrollChatToBottom = () => {
+        const query = document.querySelectorAll(`.${styles.text}`);
+        query[query.length - 1]?.scrollIntoView({ behavior: 'smooth' });
+    };
+
+    const setMessageErrorAndScrollChat = (str: string) => {
+        setMessageError(str);
+        scrollChatToBottom();
+    };
+
+    useEffect(() => {
+        scrollChatToBottom();
+    }, [chatLog]);
+
     const handleSubmit: FormEventHandler = (e) => {
         e.preventDefault();
+
         if (!message) {
             return;
         }
 
-        const whisperParts = message.match(WHISPER_REGEX);
-        if (whisperParts) {
-            const [_, to, message] = whisperParts;
-            socket?.emit('chat:send-whisper', to, message, () => {
-                setMessage('');
-            });
+        const commandMatch = message.match(COMMAND_REGEX);
+
+        if (commandMatch) {
+            const command = commandMatch[1];
+
+            if (command === 'w' || command === 'whisper') {
+                const whisperParts = message.match(WHISPER_REGEX);
+
+                if (whisperParts) {
+                    socket?.emit('chat:send-whisper', whisperParts[2], whisperParts[3], (err: string) =>
+                        err ? setMessageErrorAndScrollChat(err) : setMessage(''),
+                    );
+                } else {
+                    setMessageErrorAndScrollChat(`Usage: /${command} <id> <message>`);
+                }
+            } else {
+                setMessageErrorAndScrollChat(`Unknown command /${command}`);
+            }
         } else {
             socket?.emit('chat:send-message', message, () => {
                 setMessage('');
@@ -66,15 +91,18 @@ const Chat: FC = () => {
     };
 
     const formatChatHeader = ({ date, from, to }: Message) => {
-        let message = from === socket?.id ? `You (${from.slice(0, 5)})` : from.slice(0, 5);
+        const youAreSender = from === socket?.id;
+        const youAreRecipient = to === socket?.id;
+        let header = youAreSender ? `You (${from.slice(0, 5)})` : from.slice(0, 5);
 
-        if (to) {
-            message += ` whispered to ${to.slice(0, 5)}`;
+        if (to && (youAreSender || youAreRecipient)) {
+            const recipient = youAreRecipient ? `you (${to.slice(0, 5)})` : to.slice(0, 5);
+            header += ` whispered to ${recipient}`;
         }
 
-        message += ' ' + date.toLocaleTimeString(navigator.language, { hour: '2-digit', minute: '2-digit' });
+        header += ' \u2219 ' + date.toLocaleTimeString(navigator.language, { hour: '2-digit', minute: '2-digit' });
 
-        return message;
+        return header;
     };
 
     const formatChatMessage = ({ date, to, from, message }: Message) => {
@@ -83,7 +111,7 @@ const Chat: FC = () => {
             message
         ) : (
             <>
-                <i>whispered to</i> <b>{to}</b>
+                <i>whispered to</i> <b>{to === from ? 'themself?' : to?.slice(0, 5)}</b>
             </>
         );
 
@@ -98,13 +126,14 @@ const Chat: FC = () => {
         const messages: JSX.Element[] = [];
 
         for (let i = 0; i < chatLog.length; i++) {
-            const { date, from } = chatLog[i];
+            const { date, from, to } = chatLog[i];
             const isYourMessage = from === socket?.id;
 
             const subsequentMessages: JSX.Element[] = [formatChatMessage(chatLog[i])];
 
             while (
                 from === chatLog[i + 1]?.from &&
+                to === chatLog[i + 1]?.to &&
                 chatLog[i + 1].date.valueOf() - chatLog[i].date.valueOf() < 1000 * 60 * 1
             ) {
                 subsequentMessages.push(formatChatMessage(chatLog[i + 1]));
@@ -119,11 +148,10 @@ const Chat: FC = () => {
                     <button
                         className={styles.from}
                         onClick={() => {
-                            if (!isYourMessage && !message) {
-                                setMessage(`/whisper ${from.slice(0, 5)} `);
-                                messageInputRef.current?.focus();
-                            }
+                            setMessage(`/whisper ${from.slice(0, 5)} `);
+                            messageInputRef.current?.focus();
                         }}
+                        disabled={isYourMessage || !!message}
                     >
                         {formatChatHeader(chatLog[i])}
                     </button>
@@ -161,11 +189,13 @@ const Chat: FC = () => {
                     <div className={styles.chatLog} ref={chatLogRef}>
                         {formatChatLog()}
                     </div>
+                    {!!messageError && <p className={styles.messageError}>{messageError}</p>}
                     <form className={styles.newMessageForm} onSubmit={handleSubmit}>
                         <input
                             type="text"
                             value={message}
                             onChange={({ target: { value } }) => {
+                                setMessageError('');
                                 setMessage(value);
                             }}
                             ref={messageInputRef}
